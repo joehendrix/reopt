@@ -3,7 +3,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Reopt.TypeInference.DebugTypes
   ( ResolveAddrFn,
-    resolveDebugFunTypes
+    resolveDebugFunTypes,
+    reoptTypeWarning
   ) where
 
 import           Control.Monad.State
@@ -20,8 +21,10 @@ import           Data.Word
 import           Prettyprinter (pretty)
 import           Text.Printf (printf)
 
-import           Data.Macaw.CFG
-import           Data.Macaw.Discovery
+import Data.Macaw.CFG
+    ( ArchAddrWidth, MemSegmentOff, ArchSegmentOff )
+import Data.Macaw.Discovery
+    ( NoReturnFunStatus(MayReturnFun, NoReturnFun) )
 import qualified Data.Macaw.Dwarf as Dwarf
 import           Data.Macaw.Utils.IncComp
 
@@ -29,6 +32,8 @@ import           Reopt.ArgResolver
 import           Reopt.Events
 import           Reopt.TypeInference.FunTypeMaps
 import           Reopt.TypeInference.HeaderTypes
+
+
 
 reoptTypeWarning :: String -> IncCompM (ReoptLogEvent arch) r ()
 reoptTypeWarning msg =
@@ -329,6 +334,7 @@ resolveCompileUnits resolveFn annMap (Just (Right ctx)) = do
       resolveCompileUnits resolveFn annMap' (Dwarf.nextCUContext ctx)
 
 -- | Populate function type information using debug information.
+-- I.e., the information in the `.debug_info` section of the Elf file.
 resolveDebugFunTypes ::
   forall arch r .
   ResolveAddrFn (ArchAddrWidth arch) ->
@@ -337,7 +343,6 @@ resolveDebugFunTypes ::
   Elf.ElfHeaderInfo (ArchAddrWidth arch) ->
   IncCompM (ReoptLogEvent arch) r (FunTypeMaps (ArchAddrWidth arch))
 resolveDebugFunTypes resolveFn annMap elfInfo = do
-  let hdr = Elf.header elfInfo
   let secDataMap :: Map BSC.ByteString [( Elf.FileRange  (Elf.ElfWordType (ArchAddrWidth arch))
                                        , Elf.ElfSection (Elf.ElfWordType (ArchAddrWidth arch))
                                        )]
@@ -352,7 +357,7 @@ resolveDebugFunTypes resolveFn annMap elfInfo = do
     _:_ -> do
       incCompLog (ReoptGlobalStepStarted DebugTypeInference)
       let end =
-            case Elf.headerData hdr of
+            case Elf.headerData (Elf.header elfInfo) of
               Elf.ELFDATA2LSB -> Dwarf.LittleEndian
               Elf.ELFDATA2MSB -> Dwarf.BigEndian
       sections <- Dwarf.mkSections $ \nm ->

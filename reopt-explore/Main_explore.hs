@@ -46,7 +46,6 @@ import Reopt
 import Reopt.Events
 import Reopt.TypeInference.FunTypeMaps
 import Reopt.Utils.Dir
-import Reopt.Utils.Exit
 import System.Console.CmdArgs.Explicit
   ( Arg (..),
     Flag,
@@ -334,40 +333,25 @@ exploreDebugInfo ::
   FilePath ->
   IO [ExploreDebugResult]
 exploreDebugInfo results fPath = do
-  Some hdrInfo <- do
-    bs <- checkedReadFile fPath
-    case Elf.decodeElfHeaderInfo bs of
-      Left (_, msg) -> do
-        hPutStrLn stderr $ "Error reading " ++ fPath ++ ":"
-        hPutStrLn stderr $ "  " ++ msg
-        exitFailure
-      Right (Elf.SomeElf hdr) ->
-        pure $! Some hdr
-  let hdr = Elf.header hdrInfo
-  -- Get architecture specific information
-  marchInfo <- getElfArchInfo (Elf.headerClass hdr) (Elf.headerMachine hdr) (Elf.headerOSABI hdr)
-  (warnings, SomeArch ainfo _pltFn) <- handleEitherStringWithExit marchInfo
-  mapM_ (hPutStrLn stderr) warnings
-  mFnMap <- runReoptM printLogEvent $
-              discoverFunDebugInfo hdrInfo ainfo
-  fnMap <- handleEitherWithExit mFnMap
-  cPath <- debugInfoFileCache $ snd (splitFileName fPath)
-  withFile cPath WriteMode $ \h -> hPutStrLn h (show $ nameTypeMap fnMap)
-
-  absPath <- canonicalizePath fPath
-  let addrTypeMapSz = Map.size $ addrTypeMap fnMap
-  let noreturnMapSz = Map.size $ noreturnMap fnMap
-  let result = ExploreDebugResult
-                { debugFileAbsPath = absPath,
-                  debugFileCachePath = cPath,
-                  debugFnCount = Map.size $ nameTypeMap fnMap,
-                  debugSkippedInfo = addrTypeMapSz > 0 || noreturnMapSz > 0
-                }
-  when (not $ 0 == addrTypeMapSz) $ do
-    hPutStrLn stderr $ "WARNING: " ++ show addrTypeMapSz ++ " functions in debug info ignored (addrTypeMap) in " ++ fPath ++ "."
-  when (not $ 0 == noreturnMapSz) $ do
-    hPutStrLn stderr $ "WARNING: " ++ show noreturnMapSz ++ " functions in debug info ignored (noreturnMap) in "  ++ fPath ++ "."
-  pure $ result : results
+  getDebugFunctionInfo fPath >>= \case
+    Nothing -> pure results
+    Just fnMap -> do
+      cPath <- debugInfoFileCache $ snd (splitFileName fPath)
+      withFile cPath WriteMode $ \h -> hPutStrLn h (show $ nameTypeMap fnMap)
+      absPath <- canonicalizePath fPath
+      let addrTypeMapSz = Map.size $ addrTypeMap fnMap
+      let noreturnMapSz = Map.size $ noreturnMap fnMap
+      let result = ExploreDebugResult
+                    { debugFileAbsPath = absPath,
+                      debugFileCachePath = cPath,
+                      debugFnCount = Map.size $ nameTypeMap fnMap,
+                      debugSkippedInfo = addrTypeMapSz > 0 || noreturnMapSz > 0
+                    }
+      when (not $ 0 == addrTypeMapSz) $ do
+        hPutStrLn stderr $ "WARNING: " ++ show addrTypeMapSz ++ " functions in debug info ignored (addrTypeMap) in " ++ fPath ++ "."
+      when (not $ 0 == noreturnMapSz) $ do
+        hPutStrLn stderr $ "WARNING: " ++ show noreturnMapSz ++ " functions in debug info ignored (noreturnMap) in "  ++ fPath ++ "."
+      pure $ result : results
 
 -- | Examine a symbolic link to see if it refers to a previously cached debug
 -- library's debug info. If the link does correspond to such a file, create a

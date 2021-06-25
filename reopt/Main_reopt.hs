@@ -170,7 +170,13 @@ data Args = Args
     -- | Path to write relationships needed for relinker
     relinkerInfoExportPath :: !(Maybe FilePath),
     -- | OCCAM configuration (if applicable)
-    occamConfigPath :: !(Maybe FilePath)
+    occamConfigPath :: !(Maybe FilePath),
+    -- | List of additional directories in which to search for dynamic
+    -- dependencies.
+    dynDepDirs :: ![FilePath],
+    -- | List of additional directories in which to search for dynamic
+    -- dependencies' debug information.
+    dynDepDebugDirs :: ![FilePath]
   }
 
 -- | Action to perform when running
@@ -229,7 +235,9 @@ defaultArgs =
       llvmExportPath = Nothing,
       objectExportPath = Nothing,
       relinkerInfoExportPath = Nothing,
-      occamConfigPath = Nothing
+      occamConfigPath = Nothing,
+      dynDepDirs = [],
+      dynDepDebugDirs = []
     }
 
 ------------------------------------------------------------------------
@@ -493,6 +501,21 @@ occamFlag =
     upd path cfg = Right $ cfg {occamConfigPath = Just path}
     help = printf "Enables OCCAM as reopt's optimizer using the manifest at PATH."
 
+-- | Used to add a new location to look for dynamic dependencies.
+dynDepDirsFlag :: Flag Args
+dynDepDirsFlag = flagReq ["lib-dir"] upd "PATH" help
+  where
+    upd paths cfg = Right $ cfg {dynDepDirs = (dynDepDirs cfg) ++ (words paths)}
+    help = "Additional location to search for dynamic dependencies."
+
+-- | Used to add a new location to look for dynamic dependencies.
+dynDepDebugDirsFlag :: Flag Args
+dynDepDebugDirsFlag = flagReq ["debug-dir"] upd "PATH" help
+  where
+    upd paths cfg = Right $ cfg {dynDepDebugDirs = (dynDepDebugDirs cfg) ++ (words paths)}
+    help = "Additional location to search for dynamic dependencies' debug info."
+
+
 arguments :: Mode Args
 arguments = mode "reopt" defaultArgs help filenameArg flags
   where
@@ -540,7 +563,9 @@ arguments = mode "reopt" defaultArgs help filenameArg flags
         fnsExportFlag,
         llvmExportFlag,
         objectExportFlag,
-        relinkerInfoExportFlag
+        relinkerInfoExportFlag,
+        dynDepDirsFlag,
+        dynDepDebugDirsFlag
       ]
 
 -- | Flag to set the path to the binary to analyze.

@@ -75,6 +75,8 @@ import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Parameterized.Some
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Void (Void)
@@ -582,7 +584,9 @@ data ReoptStats = ReoptStats
     -- | Global warnings
     statsGlobalStepWarnings :: !(Map GlobalStepId Int),
     -- | Statistics about different per function stages.
-    statsFunStepStats :: !(Map ReoptStepTag FunStepStats)
+    statsFunStepStats :: !(Map ReoptStepTag FunStepStats),
+    -- | Dynamic dependencies with no available debug info.
+    statsDynDepsMissingInfo :: !(Set String)
   }
 
 instance Semigroup ReoptStats where
@@ -592,7 +596,8 @@ instance Semigroup ReoptStats where
         statsInitEntryPointCount = statsInitEntryPointCount x + statsInitEntryPointCount y,
         statsDiscoveredCodeSize = statsDiscoveredCodeSize x + statsDiscoveredCodeSize y,
         statsGlobalStepWarnings = Map.unionWith (+) (statsGlobalStepWarnings x) (statsGlobalStepWarnings y),
-        statsFunStepStats = Map.unionWith (<>) (statsFunStepStats x) (statsFunStepStats y)
+        statsFunStepStats = Map.unionWith (<>) (statsFunStepStats x) (statsFunStepStats y),
+        statsDynDepsMissingInfo =  (statsDynDepsMissingInfo x) <> (statsDynDepsMissingInfo y)
       }
 
 instance Monoid ReoptStats where
@@ -602,7 +607,8 @@ instance Monoid ReoptStats where
         statsInitEntryPointCount = 0,
         statsDiscoveredCodeSize = 0,
         statsGlobalStepWarnings = Map.empty,
-        statsFunStepStats = Map.empty
+        statsFunStepStats = Map.empty,
+        statsDynDepsMissingInfo = Set.empty
       }
 
 globalStepWarningCount :: ReoptGlobalStep arch r -> ReoptStats -> Int
@@ -646,6 +652,10 @@ ppSection nm rows = (nm ++ ":") : ppIndent rows
 outputRow :: String -> String -> String
 outputRow hdr val = hdr ++ ": " ++ val
 
+maybeOutputRow :: Bool -> String -> String -> [String]
+maybeOutputRow cond hdr val = if cond then [outputRow hdr val] else []
+
+
 ppInitializationStats :: ReoptStats -> [String]
 ppInitializationStats stats =
   ppSection
@@ -653,7 +663,9 @@ ppInitializationStats stats =
     [ outputRow "Code segment" (groupDigits (statsCodeSegmentSize stats) ++ " bytes"),
       outputRow "Initial entry points" (show (statsInitEntryPointCount stats)),
       outputRow "Warnings" (show (globalStepWarningCount DiscoveryInitialization stats))
-    ]
+    ] ++ (maybeOutputRow (not $ Set.null (statsDynDepsMissingInfo stats))
+                         "Dynamic dependencies without debug info"
+                         $ show $ Set.toList (statsDynDepsMissingInfo stats))
 
 ppDiscoveryStats :: ReoptStats -> [String]
 ppDiscoveryStats stats = do
